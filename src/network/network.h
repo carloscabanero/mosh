@@ -187,6 +187,7 @@ namespace Network {
     std::string port( void ) const;
     string get_key( void ) const { return key.printable_key(); }
     bool get_has_remote_addr( void ) const { return has_remote_addr; }
+    uint64_t get_next_seq( void) const { return next_seq; }
 
     uint64_t timeout( void ) const;
     double get_SRTT( void ) const { return SRTT; }

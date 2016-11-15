@@ -79,32 +79,32 @@ void STMClient::resume( void )
 
 void STMClient::init( void )
 {
-  if ( !is_utf8_locale() ) {
-    LocaleVar native_ctype = get_ctype();
-    string native_charset( locale_charset() );
+  // if ( !is_utf8_locale() ) {
+  //   LocaleVar native_ctype = get_ctype();
+  //   string native_charset( locale_charset() );
 
-    fprintf( stderr, "mosh-client needs a UTF-8 native locale to run.\n\n" );
-    fprintf( stderr, "Unfortunately, the client's environment (%s) specifies\nthe character set \"%s\".\n\n", native_ctype.str().c_str(), native_charset.c_str() );
-    int unused __attribute((unused)) = system( "locale" );
-    exit( 1 );
-  }
+  //   fprintf( stderr, "mosh-client needs a UTF-8 native locale to run.\n\n" );
+  //   fprintf( stderr, "Unfortunately, the client's environment (%s) specifies\nthe character set \"%s\".\n\n", native_ctype.str().c_str(), native_charset.c_str() );
+  //   int unused __attribute((unused)) = system( "locale" );
+  //   exit( 1 );
+  // }
 
   /* Verify terminal configuration */
-  if ( tcgetattr( in_fd, &saved_termios ) < 0 ) {
-    perror( "tcgetattr" );
-    exit( 1 );
-  }
+  // if ( tcgetattr( in_fd, &saved_termios ) < 0 ) {
+  //   perror( "tcgetattr" );
+  //   exit( 1 );
+  // }
 
   /* Put terminal driver in raw mode */
   raw_termios = saved_termios;
 
-#ifdef HAVE_IUTF8
-  if ( !(raw_termios.c_iflag & IUTF8) ) {
-    //    fprintf( stderr, "Warning: Locale is UTF-8 but termios IUTF8 flag not set. Setting IUTF8 flag.\n" );
-    /* Probably not really necessary since we are putting terminal driver into raw mode anyway. */
-    raw_termios.c_iflag |= IUTF8;
-  }
-#endif /* HAVE_IUTF8 */
+// #ifdef HAVE_IUTF8
+//   if ( !(raw_termios.c_iflag & IUTF8) ) {
+//     //    fprintf( stderr, "Warning: Locale is UTF-8 but termios IUTF8 flag not set. Setting IUTF8 flag.\n" );
+//     /* Probably not really necessary since we are putting terminal driver into raw mode anyway. */
+//         raw_termios.c_iflag |= IUTF8;
+//   }
+// #endif /* HAVE_IUTF8 */
 
   cfmakeraw( &raw_termios );
 

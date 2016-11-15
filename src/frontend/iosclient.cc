@@ -43,6 +43,7 @@
 #include <pwd.h>
 #include <signal.h>
 #include <time.h>
+#include <inttypes.h>
 
 #if HAVE_PTY_H
 #include <pty.h>
@@ -62,6 +63,9 @@
 
 #include "networktransport.cc"
 
+
+#define __STDC_FORMAT_MACROS
+
 void iOSClient::resume( void )
 {
   /* Restore termios state */
@@ -79,15 +83,15 @@ void iOSClient::resume( void )
 
 void iOSClient::init( void )
 {
-  if ( !is_utf8_locale() ) {
-    LocaleVar native_ctype = get_ctype();
-    string native_charset( locale_charset() );
+  // if ( !is_utf8_locale() ) {
+  //   LocaleVar native_ctype = get_ctype();
+  //   string native_charset( locale_charset() );
 
-    fprintf( stderr, "mosh-client needs a UTF-8 native locale to run.\n\n" );
-    fprintf( stderr, "Unfortunately, the client's environment (%s) specifies\nthe character set \"%s\".\n\n", native_ctype.str().c_str(), native_charset.c_str() );
-    int unused __attribute((unused)) = system( "locale" );
-    exit( 1 );
-  }
+  //   fprintf( stderr, "mosh-client needs a UTF-8 native locale to run.\n\n" );
+  //   fprintf( stderr, "Unfortunately, the client's environment (%s) specifies\nthe character set \"%s\".\n\n", native_ctype.str().c_str(), native_charset.c_str() );
+  //   int unused __attribute((unused)) = system( "locale" );
+  //   exit( 1 );
+  // }
 
   /* Verify terminal configuration */
   if ( tcgetattr( in_fd, &saved_termios ) < 0 ) {
@@ -98,13 +102,13 @@ void iOSClient::init( void )
   /* Put terminal driver in raw mode */
   raw_termios = saved_termios;
 
-#ifdef HAVE_IUTF8
-  if ( !(raw_termios.c_iflag & IUTF8) ) {
-    //    fprintf( stderr, "Warning: Locale is UTF-8 but termios IUTF8 flag not set. Setting IUTF8 flag.\n" );
-    /* Probably not really necessary since we are putting terminal driver into raw mode anyway. */
-    raw_termios.c_iflag |= IUTF8;
-  }
-#endif /* HAVE_IUTF8 */
+// #ifdef HAVE_IUTF8
+//   if ( !(raw_termios.c_iflag & IUTF8) ) {
+//     //    fprintf( stderr, "Warning: Locale is UTF-8 but termios IUTF8 flag not set. Setting IUTF8 flag.\n" );
+//     /* Probably not really necessary since we are putting terminal driver into raw mode anyway. */
+//     raw_termios.c_iflag |= IUTF8;
+//   }
+// #endif /* HAVE_IUTF8 */
 
   cfmakeraw( &raw_termios );
 
@@ -247,8 +251,40 @@ void iOSClient::main_init( void )
   /* open network */
   Network::UserStream blank;
   Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
-  network = new Network::Transport< Network::UserStream, Terminal::Complete >( blank, local_terminal,
+
+  ifstream state_file("term_state.txt", ios::binary);
+  if (state_file.is_open()){
+    char *saved_state;
+    // We need to apply a timestamped state
+    string last_timestamp, last_num;
+    streampos statestart_pos, stateend_pos;
+    std::getline(state_file, last_timestamp);
+    std::getline(state_file, last_num);	 
+    statestart_pos = state_file.tellg();
+    state_file.seekg(0, ios::end);
+    stateend_pos = state_file.tellg();
+    state_file.seekg(statestart_pos);
+    saved_state = new char[stateend_pos - statestart_pos];
+    state_file.read(saved_state, stateend_pos - statestart_pos);
+
+    local_terminal.apply_string(string(saved_state));
+    // size = file.tellg();
+    // char *memblock = new char[size];
+    // file.seekg(0, ios::beg);
+    // file.read(memblock, size);    
+    network = new Network::Transport< Network::UserStream, Terminal::Complete >( blank, local_terminal,
+  										 key.c_str(), ip.c_str(), port.c_str() ,
+  										 std::strtoull(last_timestamp.c_str(), NULL, 0), std::strtoull(last_num.c_str(), NULL, 0));
+
+    repaint_requested = true;
+
+  } else {
+    
+    network = new Network::Transport< Network::UserStream, Terminal::Complete >( blank, local_terminal,
 									       key.c_str(), ip.c_str(), port.c_str() );
+
+  }
+
 
   network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
 
@@ -331,21 +367,61 @@ bool iOSClient::process_user_input( int fd )
 	  }
 	} else if ( the_byte == 0x1a ) { /* Suspend sequence is escape_key Ctrl-Z */
 	  /* Restore terminal and terminal-driver state */
-	  swrite( out_fd, display.close().c_str() );
+	  // swrite( out_fd, display.close().c_str() );
 
-	  if ( tcsetattr( in_fd, TCSANOW, &saved_termios ) < 0 ) {
-	    perror( "tcsetattr" );
-	    exit( 1 );
-	  }
+	  // if ( tcsetattr( in_fd, TCSANOW, &saved_termios ) < 0 ) {
+	  //   perror( "tcsetattr" );
+	  //   exit( 1 );
+	  // }
 
-	  printf( "\n\033[37;44m[mosh is suspended.]\033[m\n" );
+	  // printf( "\n\033[37;44m[mosh is suspended.]\033[m\n" );
 
-	  fflush( NULL );
+	  // fflush( NULL );
 
-	  /* actually suspend */
-	  kill( 0, SIGSTOP );
+	  // /* actually suspend */
+	  // kill( 0, SIGSTOP );
 
-	  resume();
+	  // resume();
+
+	  // Get key and sequence
+	  ofstream key_file;
+	  key_file.open("key.txt");
+	  key_file << network->get_key();
+	  key_file.close();
+
+	  //std::cout << network->get_key();
+
+	  // It might not be necessary. Have to check better how packets are recreated and for what
+	  //network->get_next_seq();// Added it myself
+	  
+	  TimestampedState<Terminal::Complete> last_state = network->get_latest_remote_state();
+	  // It doesn't really matter, it will get readjusted
+	  
+	  Terminal::Complete local_terminal( 80, 80 );	  
+	  
+	  // Blank state and difference
+	  std::cout << network->get_key();
+
+	  ofstream state_file;
+	  state_file.open("term_state.txt", ios::binary);
+	  state_file << last_state.timestamp << std::endl;
+	  state_file << last_state.num << std::endl;
+	  state_file << last_state.state.diff_from(local_terminal);
+	  state_file.close();
+
+	  state_file.open("input_state.txt", ios::binary);
+	  state_file << last_state.timestamp << std::endl;
+	  state_file << last_state.num << std::endl;
+	  state_file << last_state.state.diff_from(local_terminal);
+	  state_file.close();
+
+
+	  //local_terminal.apply_string(last_state.state.diff_from(local_terminal));	  
+	  // Print the timestamp and state number
+	  //printf ( "%"PRIu64 "- %"PRIu64, last_state.timestamp, last_state.num ) ;
+
+	  kill(0, SIGKILL);
+	  
 	} else if ( (the_byte == escape_pass_key) || (the_byte == escape_pass_key2) ) {
 	  /* Emulation sequence to type escape_key is escape_key +
 	     escape_pass_key (that is escape key without Ctrl) */

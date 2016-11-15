@@ -421,6 +421,7 @@ void Display::put_cell( bool initialized, FrameState &frame, const Framebuffer &
   for ( std::vector<wchar_t>::const_iterator i = cell->contents.begin();
 	i != cell->contents.end();
 	i++ ) {
+    fprintf(stderr, "%lc", (wint_t)*i);
     snprintf( tmp, 64, "%lc", (wint_t)*i );
     frame.append( tmp );
   }

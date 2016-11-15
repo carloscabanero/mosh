@@ -39,7 +39,7 @@
 #include <iostream>
 
 #include "iosclient.h"
-#include "terminalbridge.h"
+//#include "terminalbridge.h"
 #include "locale_utils.h"
 
 using namespace std;
@@ -161,6 +161,8 @@ int main( int argc, char *argv[] )
   string predict, port_request;
   int help=0, version=0, fake_proxy=0;
 
+  string port, key;
+
   static struct option long_options[] =
   {
     { "client",      required_argument,  0,              'c' },
@@ -168,6 +170,7 @@ int main( int argc, char *argv[] )
     { "predict",     required_argument,  0,              'r' },
     { "port",        required_argument,  0,              'p' },
     { "ssh",         required_argument,  0,              'S' },
+    { "key",         required_argument,  0,              'k' },
     { "help",        no_argument,        &help,           1  },
     { "version",     no_argument,        &version,        1  },
     { "fake-proxy!", no_argument,        &fake_proxy,     1  },
@@ -202,6 +205,9 @@ int main( int argc, char *argv[] )
       case 'S':
         ssh = optarg;
         break;
+      case 'k':
+	key = optarg;
+	break;
       case 'a':
         predict = "always";
         break;
@@ -239,7 +245,10 @@ int main( int argc, char *argv[] )
            argv[0],
            port_request.c_str() );
     }
+    port = port_request;
   }
+
+
 
   unsetenv( "MOSH_PREDICTION_DISPLAY" );
 
@@ -254,13 +263,18 @@ int main( int argc, char *argv[] )
   int rc;  
   unsigned long hostaddr;
 
+  string ip(host);
+
   hostaddr = inet_addr(host);
+
+  if (!key.size()) {
 
   // Connect to port on host
   sock = socket(AF_INET, SOCK_STREAM, 0);
   sin.sin_family = AF_INET;
   sin.sin_port = htons(22); // TODO: Use a custom ssh port
   sin.sin_addr.s_addr = hostaddr; // !! Always an IP address
+
 
   if ((rc = connect(sock, (struct sockaddr*)(&sin),
 		    sizeof(struct sockaddr_in))) != 0) {
@@ -376,8 +390,8 @@ int main( int argc, char *argv[] )
 
 // TODO: It would be great to use the ssh conn and read in parallel, to save
 // any race conditions or other conditions.
-  printf("%s", result.c_str());
-  string ip(host), port, key;
+  printf("%s", result.c_str());  
+
   string line;
   std::istringstream response(result);
   while (std::getline(response, line)) {
@@ -404,8 +418,10 @@ int main( int argc, char *argv[] )
       printf( "%s\n", line.c_str() );
     }
   }
-  printf( "Connecting to %s, with key %s\n", ip.c_str(), key.c_str());
 
+  }
+  printf( "Connecting to %s, with key %s\n", ip.c_str(), key.c_str());
+  
 // TODO: Make sure we have an IP address 
   if ( !ip.size() ) {
     die( "%s: Did not find remote IP address (is SSH ProxyCommand disabled?).",
@@ -431,6 +447,7 @@ int main( int argc, char *argv[] )
     client.init();
 
     try {
+      sleep(3);
       success = client.main();
     } catch ( ... ) {
       client.shutdown();
