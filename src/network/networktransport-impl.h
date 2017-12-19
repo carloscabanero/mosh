@@ -69,6 +69,21 @@ Transport<MyState, RemoteState>::Transport( MyState &initial_state, RemoteState 
 }
 
 template <class MyState, class RemoteState>
+Transport<MyState, RemoteState>::Transport( MyState &initial_state, RemoteState &initial_remote,
+					    const char *key_str, const char *ip, const char *port, list< TimestampedState<RemoteState> > restored_received_states, uint16_t restored_saved_timestamp, uint64_t restored_saved_timestamp_received_at, uint64_t restored_expected_receiver_seq)
+  : connection( key_str, ip, port, restored_saved_timestamp, restored_saved_timestamp_received_at, restored_expected_receiver_seq ),
+    sender( &connection, initial_state ),
+    received_states( restored_received_states  ),
+    receiver_quench_timer( 0 ),
+    last_receiver_state( initial_remote ),
+    fragments(),
+    verbose( 0 )
+{
+  /* client */
+}
+
+
+template <class MyState, class RemoteState>
 void Transport<MyState, RemoteState>::recv( void )
 {
   string s( connection.recv() );

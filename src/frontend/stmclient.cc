@@ -3,8 +3,7 @@
     Copyright 2012 Keith Winstein
 
     This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
+    it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,8 +12,7 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.  
     In addition, as a special exception, the copyright holders give
     permission to link the code of portions of this program with the
     OpenSSL library under certain conditions as described in each
@@ -44,6 +42,11 @@
 #include <pwd.h>
 #include <signal.h>
 #include <time.h>
+#include <iostream>
+#include <fstream>
+
+#include <google/protobuf/io/coded_stream.h>
+
 
 #if HAVE_PTY_H
 #include <pty.h>
@@ -62,6 +65,9 @@
 #include "timestamp.h"
 
 #include "networktransport-impl.h"
+
+#include "state.pb.h"
+#include "crypto.h"
 
 void STMClient::resume( void )
 {
@@ -221,8 +227,7 @@ void STMClient::shutdown( void )
     fputs( "\n\nmosh did not shut down cleanly. Please note that the\n"
 	   "mosh-server process may still be running on the server.\n", stderr );
   }
-}
-
+} 
 void STMClient::main_init( void )
 {
   Select &sel = Select::get_instance();
@@ -247,15 +252,48 @@ void STMClient::main_init( void )
   string init = display.new_frame( false, local_framebuffer, local_framebuffer );
   swrite( STDOUT_FILENO, init.data(), init.size() );
 
-  /* open network */
-  Network::UserStream blank;
-  Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
-  network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str() ) );
 
-  network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
+  ifstream f("nice.txt");
+  if (f.is_open()) {
+    std::string str((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
+    State::States states;
+    if (states.ParseFromString(str)) {
+      Crypto::set_seq(states.seq());
+      list < TimestampedState<Terminal::Complete> > received_states;
+      int num = states.states_size();
+      Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
+      for (int i = 0; i < num; i++) {
+        State::St s = states.states(i);
+        Terminal::Complete local( 80, 80 );
+        local.apply_string(s.diff());
+        local_terminal = local;
+        TimestampedState<Terminal::Complete> si = TimestampedState<Terminal::Complete>(s.timestamp(), s.num(), local);
+        received_states.push_back(si);
+      }
+      /* open network */
+      Network::UserStream blank;
+      blank.apply_string(states.user_diff());
+      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), received_states, states.saved_timestamp(), states.saved_timestamp_received_at(), states.expected_receiver_seq() ) );
+      network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
+    }
+
+  } else {
+    /* open network */
+    Network::UserStream blank;
+    // Normal flow
+    Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
+
+    network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str() ) );
+
+    network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
+    network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
+  }
+
+  //network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
 
   /* tell server the size of the terminal */
-  network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
+  //network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
 
   /* be noisy as necessary */
   network->set_verbose( verbose );
@@ -342,21 +380,60 @@ bool STMClient::process_user_input( int fd )
 	return false;
       } else if ( the_byte == 0x1a ) { /* Suspend sequence is escape_key Ctrl-Z */
 	/* Restore terminal and terminal-driver state */
-	swrite( STDOUT_FILENO, display.close().c_str() );
+	 //swrite( STDOUT_FILENO, display.close().c_str() );
+        //
 
-	if ( tcsetattr( STDIN_FILENO, TCSANOW, &saved_termios ) < 0 ) {
-	  perror( "tcsetattr" );
-	  exit( 1 );
-	}
+        std::cout << std::endl;
+        std::cout << "MOSH_KEY=";
+        std::cout << network->get_key();
+        std::cout << " src/frontend/mosh-client 127.0.0.1 ";
+        std::cout << port;
+        std::cout << std::endl;
 
-	fputs( "\n\033[37;44m[mosh is suspended.]\033[m\n", stdout );
+        std::ofstream f("nice.txt");
+        Network::UserStream blank;
 
-	fflush( NULL );
+        State::States states;
+        list < TimestampedState<Terminal::Complete> > received_states = network->get_received_states();
+        string userDiff = network->get_current_state().diff_from(blank);
+        states.set_user_diff(userDiff);
+        net.start_shutdown();
+        states.set_seq(Crypto::seq());
+        states.set_saved_timestamp(network->get_saved_timestamp());
+        states.set_saved_timestamp_received_at(network->get_saved_timestamp_received_at());
+        states.set_expected_receiver_seq(network->get_expected_receiver_seq());
+        //states.set_saved_timestamp(network->get_connection().get_saved_timestamp());
 
-	/* actually suspend */
-	kill( 0, SIGSTOP );
+        for ( list< TimestampedState<Terminal::Complete> >::iterator i = received_states.begin();
+            i != received_states.end();
+            i++ ) {
+          State::St * s = states.add_states();
 
-	resume();
+          TimestampedState<Terminal::Complete> state = *i;
+          Terminal::Complete local_terminal( 80, 80 );
+          s->set_timestamp(state.timestamp);
+          s->set_num(state.num);
+          s->set_diff(state.state.diff_from(local_terminal));
+        }
+        f << states.SerializeAsString();
+        f.close();
+
+	//if ( tcsetattr( STDIN_FILENO, TCSANOW, &saved_termios ) < 0 ) {
+	  //perror( "tcsetattr" );
+	  //exit( 1 );
+	//}
+
+	//fputs( "\n\033[37;44m[mosh is suspended.]\033[m\n", stdout );
+	fputs( "\n\033[37;44m[Supsending with state!!!.]\033[m\n", stdout );
+
+	//fflush( NULL );
+
+	// [> actually suspend/kill it <]
+        //resume();
+        kill( 0, SIGKILL );
+        return true;
+
+	//resume();
       } else if ( (the_byte == escape_pass_key) || (the_byte == escape_pass_key2) ) {
 	/* Emulation sequence to type escape_key is escape_key +
 	   escape_pass_key (that is escape key without Ctrl) */
