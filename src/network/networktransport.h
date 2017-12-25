@@ -70,8 +70,16 @@ namespace Network {
     Transport( MyState &initial_state, RemoteState &initial_remote,
 	       const char *key_str, const char *ip, const char *port );
 
-    Transport( MyState &initial_state, RemoteState &initial_remote,
-	       const char *key_str, const char *ip, const char *port, list< TimestampedState<RemoteState> > restored_received_states, uint16_t  restored_saved_timestamp, uint64_t restored_saved_timestamp_received_at, uint64_t restored_expected_receiver_seq );
+    Transport( MyState &initial_state,
+        RemoteState &initial_remote,
+	       const char *key_str,
+         const char *ip,
+         const char *port,
+         list< TimestampedState<MyState> > restored_sent_states,
+         list< TimestampedState<RemoteState> > restored_received_states,
+         uint16_t  restored_saved_timestamp,
+         uint64_t restored_saved_timestamp_received_at,
+         uint64_t restored_expected_receiver_seq );
         //states.set_saved_timestamp(network->get_saved_timestamp());
         //states.set_saved_timestamp_received_at(network->get_saved_timestamp_received_at());
         //states.set_expected_receiver_seq(network->get_expected_receiver_seq());
@@ -87,6 +95,7 @@ namespace Network {
 
     // Hack for now
     list< TimestampedState<RemoteState> > get_received_states (void) { return received_states; }
+    list< TimestampedState<MyState> > get_sent_states(void) { return  sender.get_sent_states(); };
 
     /* Find diff between last receiver state and current remote state, then rationalize states. */
     string get_remote_diff( void );

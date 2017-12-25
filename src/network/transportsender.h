@@ -113,6 +113,8 @@ namespace Network {
   public:
     /* constructor */
     TransportSender( Connection *s_connection, MyState &initial_state );
+    /* constructor */
+    TransportSender( Connection *s_connection, MyState &initial_state, list< TimestampedState<MyState> > restored_sent_states);
 
     /* Send data or an ack if necessary */
     void tick( void );
@@ -138,6 +140,9 @@ namespace Network {
     /* Misc. getters and setters */
     /* Cannot modify current_state while shutdown in progress */
     MyState &get_current_state( void ) { assert( !shutdown_in_progress ); return current_state; }
+
+    list< TimestampedState<MyState> > get_sent_states(void) { return  sent_states; };
+
     void set_current_state( const MyState &x )
     {
       assert( !shutdown_in_progress );

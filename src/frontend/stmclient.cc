@@ -260,21 +260,34 @@ void STMClient::main_init( void )
     State::States states;
     if (states.ParseFromString(str)) {
       Crypto::set_seq(states.seq());
-      list < TimestampedState<Terminal::Complete> > received_states;
-      int num = states.states_size();
       Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
-      for (int i = 0; i < num; i++) {
-        State::St s = states.states(i);
-        Terminal::Complete local( 80, 80 );
+      list < TimestampedState<Terminal::Complete> > received_states;
+      list < TimestampedState<Network::UserStream> > sent_states;
+
+      int recevied_count = states.received_states_size();
+      int sent_count = states.sent_states_size();
+
+      for (int i = 0; i < recevied_count; i++) {
+        State::St s = states.received_states(i);
+        Terminal::Complete local( window_size.ws_col, window_size.ws_row );
         local.apply_string(s.diff());
         local_terminal = local;
         TimestampedState<Terminal::Complete> si = TimestampedState<Terminal::Complete>(s.timestamp(), s.num(), local);
         received_states.push_back(si);
       }
+
+      for (int i = 0; i < sent_count; i++) {
+        State::St s = states.sent_states(i);
+        Network::UserStream local;
+        local.apply_string(s.diff());
+        TimestampedState<Network::UserStream> si = TimestampedState<Network::UserStream>(s.timestamp(), s.num(), local);
+        sent_states.push_back(si);
+      }
+
       /* open network */
       Network::UserStream blank;
       blank.apply_string(states.user_diff());
-      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), received_states, states.saved_timestamp(), states.saved_timestamp_received_at(), states.expected_receiver_seq() ) );
+      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states, states.saved_timestamp(), states.saved_timestamp_received_at(), states.expected_receiver_seq() ) );
       network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
     }
 
@@ -296,8 +309,8 @@ void STMClient::main_init( void )
   //network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
 
   /* be noisy as necessary */
-  network->set_verbose( verbose );
-  Select::set_verbose( verbose );
+  network->set_verbose( 0 );
+  Select::set_verbose( 0 );
 }
 
 void STMClient::output_new_frame( void )
@@ -391,12 +404,15 @@ bool STMClient::process_user_input( int fd )
         std::cout << std::endl;
 
         std::ofstream f("nice.txt");
-        Network::UserStream blank;
 
         State::States states;
         list < TimestampedState<Terminal::Complete> > received_states = network->get_received_states();
-        string userDiff = network->get_current_state().diff_from(blank);
-        states.set_user_diff(userDiff);
+        list < TimestampedState<Network::UserStream> > sent_states = network->get_sent_states();
+
+        Network::UserStream blank;
+        string user_diff = network->get_current_state().diff_from(blank);
+        states.set_user_diff(user_diff);
+
         net.start_shutdown();
         states.set_seq(Crypto::seq());
         states.set_saved_timestamp(network->get_saved_timestamp());
@@ -407,13 +423,23 @@ bool STMClient::process_user_input( int fd )
         for ( list< TimestampedState<Terminal::Complete> >::iterator i = received_states.begin();
             i != received_states.end();
             i++ ) {
-          State::St * s = states.add_states();
+          State::St * s = states.add_received_states();
 
           TimestampedState<Terminal::Complete> state = *i;
-          Terminal::Complete local_terminal( 80, 80 );
           s->set_timestamp(state.timestamp);
           s->set_num(state.num);
-          s->set_diff(state.state.diff_from(local_terminal));
+          s->set_diff(state.state.init_diff());
+        }
+
+        for ( list< TimestampedState<Network::UserStream> >::iterator i = sent_states.begin();
+            i != sent_states.end();
+            i++ ) {
+          State::St * s = states.add_sent_states();
+
+          TimestampedState<Network::UserStream> state = *i;
+          s->set_timestamp(state.timestamp);
+          s->set_num(state.num);
+          s->set_diff(state.state.init_diff());
         }
         f << states.SerializeAsString();
         f.close();

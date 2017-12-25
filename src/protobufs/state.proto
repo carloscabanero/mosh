@@ -10,7 +10,8 @@ message States {
   required uint64 saved_timestamp = 3;
   required uint64 saved_timestamp_received_at = 4;
   required uint64 expected_receiver_seq = 5;
-  repeated St states = 6;
+  repeated St received_states = 6;
+  repeated St sent_states = 7;
 
 }
 
