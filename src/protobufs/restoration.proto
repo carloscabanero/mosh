@@ -5,14 +5,10 @@ option optimize_for = LITE_RUNTIME;
 package Restoration;
 
 message Context {
-  required bytes current_state_patch = 1;
-  required uint64 seq = 2;
-  required uint64 saved_timestamp = 3;
-  required uint64 saved_timestamp_received_at = 4;
-  required uint64 expected_receiver_seq = 5;
-  repeated TimestampedState received_states = 6;
-  repeated TimestampedState sent_states = 7;
-
+  required uint64 seq = 1;
+  required bytes current_state_patch = 2;
+  repeated TimestampedState received_states = 3;
+  repeated TimestampedState sent_states = 4;
 }
 
 message TimestampedState {

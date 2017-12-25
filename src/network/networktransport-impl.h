@@ -76,11 +76,8 @@ Transport<MyState, RemoteState>::Transport(
     const char *ip,
     const char *port,
     list< TimestampedState<MyState> > restored_sent_states,
-    list< TimestampedState<RemoteState> > restored_received_states,
-    uint16_t restored_saved_timestamp,
-    uint64_t restored_saved_timestamp_received_at,
-    uint64_t restored_expected_receiver_seq)
-  : connection( key_str, ip, port, restored_saved_timestamp, restored_saved_timestamp_received_at, restored_expected_receiver_seq ),
+    list< TimestampedState<RemoteState> > restored_received_states)
+  : connection( key_str, ip, port ),
     sender( &connection, initial_state, restored_sent_states ),
     received_states( restored_received_states  ),
     receiver_quench_timer( 0 ),

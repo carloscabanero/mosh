@@ -251,6 +251,8 @@ void STMClient::main_init( void )
   /* initialize screen */
   string init = display.new_frame( false, local_framebuffer, local_framebuffer );
   swrite( STDOUT_FILENO, init.data(), init.size() );
+  /* open network */
+  Network::UserStream blank;
 
 
   ifstream f("state.dump");
@@ -260,6 +262,7 @@ void STMClient::main_init( void )
     Restoration::Context context;
     if (context.ParseFromString(str)) {
       Crypto::set_seq(context.seq());
+      blank.apply_string(context.current_state_patch());
       Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
       list < TimestampedState<Terminal::Complete> > received_states;
       list < TimestampedState<Network::UserStream> > sent_states;
@@ -284,14 +287,9 @@ void STMClient::main_init( void )
         sent_states.push_back(si);
       }
 
-      /* open network */
-      Network::UserStream blank;
-      blank.apply_string(context.current_state_patch());
-      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states, context.saved_timestamp(), context.saved_timestamp_received_at(), context.expected_receiver_seq() ) );
+      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states) );
     }
   } else {
-    /* open network */
-    Network::UserStream blank;
     // Normal flow
     Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
     network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str() ) );
@@ -409,10 +407,6 @@ bool STMClient::process_user_input( int fd )
 
         net.start_shutdown();
         states.set_seq(Crypto::seq());
-        states.set_saved_timestamp(network->get_saved_timestamp());
-        states.set_saved_timestamp_received_at(network->get_saved_timestamp_received_at());
-        states.set_expected_receiver_seq(network->get_expected_receiver_seq());
-        //states.set_saved_timestamp(network->get_connection().get_saved_timestamp());
 
         for ( list< TimestampedState<Terminal::Complete> >::iterator i = received_states.begin();
             i != received_states.end();

@@ -395,51 +395,6 @@ Connection::Connection( const char *key_str, const char *ip, const char *port ) 
   set_MTU( remote_addr.sa.sa_family );
 }
 
-Connection::Connection( const char *key_str, const char *ip, const char *port , uint16_t restored_saved_timestamp, uint64_t restored_saved_timestamp_received_at, uint64_t restored_expected_receiver_seq) /* client */
-  : socks(),
-    has_remote_addr( false ),
-    remote_addr(),
-    remote_addr_len( 0 ),
-    server( false ),
-    MTU( DEFAULT_SEND_MTU ),
-    key( key_str ),
-    session( key ),
-    direction( TO_SERVER ),
-    // TO SAVE
-    saved_timestamp( restored_saved_timestamp ),
-    // TO SAVE
-    saved_timestamp_received_at( restored_saved_timestamp_received_at ),
-    // TO SAVE
-    expected_receiver_seq( restored_expected_receiver_seq ),
-    last_heard( -1 ),
-    last_port_choice( -1 ),
-    last_roundtrip_success( -1 ),
-    RTT_hit( false ),
-    SRTT( 1000 ),
-    RTTVAR( 500 ),
-    send_error()
-{
-  setup();
-
-  /* associate socket with remote host and port */
-  struct addrinfo hints;
-  memset( &hints, 0, sizeof( hints ) );
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-  AddrInfo ai( ip, port, &hints );
-  fatal_assert( static_cast<size_t>( ai.res->ai_addrlen ) <= sizeof( remote_addr ) );
-  remote_addr_len = ai.res->ai_addrlen;
-  memcpy( &remote_addr.sa, ai.res->ai_addr, remote_addr_len );
-
-  has_remote_addr = true;
-
-  socks.push_back( Socket( remote_addr.sa.sa_family ) );
-
-  set_MTU( remote_addr.sa.sa_family );
-}
-
-
 void Connection::send( const string & s )
 {
   if ( !has_remote_addr ) {

@@ -208,11 +208,6 @@ namespace Network {
 
     Connection( const char *desired_ip, const char *desired_port ); /* server */
     Connection( const char *key_str, const char *ip, const char *port ); /* client */
-    Connection( const char *key_str, const char *ip, const char *port, uint16_t restored_saved_timestamp, uint64_t restored_saved_timestamp_received_at, uint64_t restored_expected_receiver_seq); /* client */
-
-    uint16_t get_saved_timestamp(void) { return saved_timestamp; };
-    uint64_t get_saved_timestamp_received_at(void) { return saved_timestamp_received_at; };
-    uint64_t get_expected_receiver_seq(void) { return expected_receiver_seq; };
 
     void send( const string & s );
     string recv( void );

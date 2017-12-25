@@ -76,13 +76,7 @@ namespace Network {
          const char *ip,
          const char *port,
          list< TimestampedState<MyState> > restored_sent_states,
-         list< TimestampedState<RemoteState> > restored_received_states,
-         uint16_t  restored_saved_timestamp,
-         uint64_t restored_saved_timestamp_received_at,
-         uint64_t restored_expected_receiver_seq );
-        //states.set_saved_timestamp(network->get_saved_timestamp());
-        //states.set_saved_timestamp_received_at(network->get_saved_timestamp_received_at());
-        //states.set_expected_receiver_seq(network->get_expected_receiver_seq());
+         list< TimestampedState<RemoteState> > restored_received_states);
 
     /* Send data or an ack if necessary. */
     void tick( void ) { sender.tick(); }
@@ -99,10 +93,6 @@ namespace Network {
 
     /* Find diff between last receiver state and current remote state, then rationalize states. */
     string get_remote_diff( void );
-
-    uint16_t get_saved_timestamp(void) { return connection.get_saved_timestamp(); };
-    uint64_t get_saved_timestamp_received_at(void) { return connection.get_saved_timestamp_received_at(); };
-    uint64_t get_expected_receiver_seq(void) { return connection.get_expected_receiver_seq(); };
 
     /* Shut down other side of connection. */
     /* Illegal to change current_state after this. */
