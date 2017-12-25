@@ -66,7 +66,7 @@
 
 #include "networktransport-impl.h"
 
-#include "state.pb.h"
+#include "restoration.pb.h"
 #include "crypto.h"
 
 void STMClient::resume( void )
@@ -253,64 +253,58 @@ void STMClient::main_init( void )
   swrite( STDOUT_FILENO, init.data(), init.size() );
 
 
-  ifstream f("nice.txt");
+  ifstream f("state.dump");
   if (f.is_open()) {
     std::string str((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     f.close();
-    State::States states;
-    if (states.ParseFromString(str)) {
-      Crypto::set_seq(states.seq());
+    Restoration::Context context;
+    if (context.ParseFromString(str)) {
+      Crypto::set_seq(context.seq());
       Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
       list < TimestampedState<Terminal::Complete> > received_states;
       list < TimestampedState<Network::UserStream> > sent_states;
 
-      int recevied_count = states.received_states_size();
-      int sent_count = states.sent_states_size();
+      int recevied_count = context.received_states_size();
 
       for (int i = 0; i < recevied_count; i++) {
-        State::St s = states.received_states(i);
+        Restoration::TimestampedState s = context.received_states(i);
         Terminal::Complete local( window_size.ws_col, window_size.ws_row );
-        local.apply_string(s.diff());
+        local.apply_string(s.patch());
         local_terminal = local;
         TimestampedState<Terminal::Complete> si = TimestampedState<Terminal::Complete>(s.timestamp(), s.num(), local);
         received_states.push_back(si);
       }
 
+      int sent_count = context.sent_states_size();
       for (int i = 0; i < sent_count; i++) {
-        State::St s = states.sent_states(i);
+        Restoration::TimestampedState s = context.sent_states(i);
         Network::UserStream local;
-        local.apply_string(s.diff());
+        local.apply_string(s.patch());
         TimestampedState<Network::UserStream> si = TimestampedState<Network::UserStream>(s.timestamp(), s.num(), local);
         sent_states.push_back(si);
       }
 
       /* open network */
       Network::UserStream blank;
-      blank.apply_string(states.user_diff());
-      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states, states.saved_timestamp(), states.saved_timestamp_received_at(), states.expected_receiver_seq() ) );
-      network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
+      blank.apply_string(context.current_state_patch());
+      network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states, context.saved_timestamp(), context.saved_timestamp_received_at(), context.expected_receiver_seq() ) );
     }
-
   } else {
     /* open network */
     Network::UserStream blank;
     // Normal flow
     Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
-
     network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str() ) );
-
-    network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
-    network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
   }
 
-  //network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
+  network->set_send_delay( 1 ); /* minimal delay on outgoing keystrokes */
 
   /* tell server the size of the terminal */
-  //network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
+  network->get_current_state().push_back( Parser::Resize( window_size.ws_col, window_size.ws_row ) );
 
   /* be noisy as necessary */
-  network->set_verbose( 0 );
-  Select::set_verbose( 0 );
+  network->set_verbose( verbose );
+  Select::set_verbose( verbose );
 }
 
 void STMClient::output_new_frame( void )
@@ -403,15 +397,15 @@ bool STMClient::process_user_input( int fd )
         std::cout << port;
         std::cout << std::endl;
 
-        std::ofstream f("nice.txt");
+        std::ofstream f("state.dump");
 
-        State::States states;
+        Restoration::Context states;
         list < TimestampedState<Terminal::Complete> > received_states = network->get_received_states();
         list < TimestampedState<Network::UserStream> > sent_states = network->get_sent_states();
 
         Network::UserStream blank;
-        string user_diff = network->get_current_state().diff_from(blank);
-        states.set_user_diff(user_diff);
+        string current_state_patch = network->get_current_state().diff_from(blank);
+        states.set_current_state_patch(current_state_patch);
 
         net.start_shutdown();
         states.set_seq(Crypto::seq());
@@ -423,23 +417,23 @@ bool STMClient::process_user_input( int fd )
         for ( list< TimestampedState<Terminal::Complete> >::iterator i = received_states.begin();
             i != received_states.end();
             i++ ) {
-          State::St * s = states.add_received_states();
+          Restoration::TimestampedState * s = states.add_received_states();
 
           TimestampedState<Terminal::Complete> state = *i;
           s->set_timestamp(state.timestamp);
           s->set_num(state.num);
-          s->set_diff(state.state.init_diff());
+          s->set_patch(state.state.init_diff());
         }
 
         for ( list< TimestampedState<Network::UserStream> >::iterator i = sent_states.begin();
             i != sent_states.end();
             i++ ) {
-          State::St * s = states.add_sent_states();
+          Restoration::TimestampedState * s = states.add_sent_states();
 
           TimestampedState<Network::UserStream> state = *i;
           s->set_timestamp(state.timestamp);
           s->set_num(state.num);
-          s->set_diff(state.state.init_diff());
+          s->set_patch(state.state.init_diff());
         }
         f << states.SerializeAsString();
         f.close();

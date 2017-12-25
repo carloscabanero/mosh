@@ -2,21 +2,21 @@ syntax = "proto2";
 
 option optimize_for = LITE_RUNTIME;
 
-package State;
+package Restoration;
 
-message States {
-  required bytes user_diff = 1;
+message Context {
+  required bytes current_state_patch = 1;
   required uint64 seq = 2;
   required uint64 saved_timestamp = 3;
   required uint64 saved_timestamp_received_at = 4;
   required uint64 expected_receiver_seq = 5;
-  repeated St received_states = 6;
-  repeated St sent_states = 7;
+  repeated TimestampedState received_states = 6;
+  repeated TimestampedState sent_states = 7;
 
 }
 
-message St {
+message TimestampedState {
   optional uint64 num = 1;
   optional uint64 timestamp = 2;
-  required bytes diff = 3;
+  required bytes patch = 3;
 }
