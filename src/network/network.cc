@@ -361,11 +361,8 @@ Connection::Connection( const char *key_str, const char *ip, const char *port ) 
     key( key_str ),
     session( key ),
     direction( TO_SERVER ),
-    // TO SAVE
     saved_timestamp( -1 ),
-    // TO SAVE
     saved_timestamp_received_at( 0 ),
-    // TO SAVE
     expected_receiver_seq( 0 ),
     last_heard( -1 ),
     last_port_choice( -1 ),
