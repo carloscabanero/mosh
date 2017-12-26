@@ -251,8 +251,11 @@ void STMClient::main_init( void )
   /* initialize screen */
   string init = display.new_frame( false, local_framebuffer, local_framebuffer );
   swrite( STDOUT_FILENO, init.data(), init.size() );
+
   /* open network */
   Network::UserStream blank;
+
+  Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
 
 
   ifstream f("state.dump");
@@ -263,10 +266,8 @@ void STMClient::main_init( void )
     if (context.ParseFromString(str)) {
       Crypto::set_seq(context.seq());
       blank.apply_string(context.current_state_patch());
-      Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
-      list < TimestampedState<Terminal::Complete> > received_states;
-      list < TimestampedState<Network::UserStream> > sent_states;
 
+      list < TimestampedState<Terminal::Complete> > received_states;
       int recevied_count = context.received_states_size();
 
       for (int i = 0; i < recevied_count; i++) {
@@ -278,6 +279,7 @@ void STMClient::main_init( void )
         received_states.push_back(si);
       }
 
+      list < TimestampedState<Network::UserStream> > sent_states;
       int sent_count = context.sent_states_size();
       for (int i = 0; i < sent_count; i++) {
         Restoration::TimestampedState s = context.sent_states(i);
@@ -291,7 +293,6 @@ void STMClient::main_init( void )
     }
   } else {
     // Normal flow
-    Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
     network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str() ) );
   }
 
