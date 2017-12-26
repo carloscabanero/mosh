@@ -254,7 +254,6 @@ void STMClient::main_init( void )
 
   /* open network */
   Network::UserStream blank;
-
   Terminal::Complete local_terminal( window_size.ws_col, window_size.ws_row );
 
 
@@ -271,22 +270,20 @@ void STMClient::main_init( void )
       int recevied_count = context.received_states_size();
 
       for (int i = 0; i < recevied_count; i++) {
-        Restoration::TimestampedState s = context.received_states(i);
-        Terminal::Complete local( window_size.ws_col, window_size.ws_row );
-        local.apply_string(s.patch());
-        local_terminal = local;
-        TimestampedState<Terminal::Complete> si = TimestampedState<Terminal::Complete>(s.timestamp(), s.num(), local);
-        received_states.push_back(si);
+        Restoration::TimestampedState ts = context.received_states(i);
+        Terminal::Complete state( window_size.ws_col, window_size.ws_row );
+        state.apply_string(ts.patch());
+        local_terminal = state;
+        received_states.push_back(TimestampedState<Terminal::Complete>(ts.timestamp(), ts.num(), state));
       }
 
       list < TimestampedState<Network::UserStream> > sent_states;
       int sent_count = context.sent_states_size();
       for (int i = 0; i < sent_count; i++) {
-        Restoration::TimestampedState s = context.sent_states(i);
-        Network::UserStream local;
-        local.apply_string(s.patch());
-        TimestampedState<Network::UserStream> si = TimestampedState<Network::UserStream>(s.timestamp(), s.num(), local);
-        sent_states.push_back(si);
+        Restoration::TimestampedState ts = context.sent_states(i);
+        Network::UserStream state;
+        state.apply_string(ts.patch());
+        sent_states.push_back(TimestampedState<Network::UserStream>(ts.timestamp(), ts.num(), state));
       }
 
       network = NetworkPointer( new NetworkType( blank, local_terminal, key.c_str(), ip.c_str(), port.c_str(), sent_states, received_states) );
@@ -412,23 +409,23 @@ bool STMClient::process_user_input( int fd )
         for ( list< TimestampedState<Terminal::Complete> >::iterator i = received_states.begin();
             i != received_states.end();
             i++ ) {
-          Restoration::TimestampedState * s = states.add_received_states();
+          Restoration::TimestampedState * ts = states.add_received_states();
 
           TimestampedState<Terminal::Complete> state = *i;
-          s->set_timestamp(state.timestamp);
-          s->set_num(state.num);
-          s->set_patch(state.state.init_diff());
+          ts->set_timestamp(state.timestamp);
+          ts->set_num(state.num);
+          ts->set_patch(state.state.init_diff());
         }
 
         for ( list< TimestampedState<Network::UserStream> >::iterator i = sent_states.begin();
             i != sent_states.end();
             i++ ) {
-          Restoration::TimestampedState * s = states.add_sent_states();
+          Restoration::TimestampedState * ts = states.add_sent_states();
 
           TimestampedState<Network::UserStream> state = *i;
-          s->set_timestamp(state.timestamp);
-          s->set_num(state.num);
-          s->set_patch(state.state.init_diff());
+          ts->set_timestamp(state.timestamp);
+          ts->set_num(state.num);
+          ts->set_patch(state.state.init_diff());
         }
         f << states.SerializeAsString();
         f.close();
@@ -444,7 +441,6 @@ bool STMClient::process_user_input( int fd )
 	//fflush( NULL );
 
 	// [> actually suspend/kill it <]
-        //resume();
         kill( 0, SIGKILL );
         return true;
 
