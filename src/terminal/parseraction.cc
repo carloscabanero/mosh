@@ -38,19 +38,6 @@
 
 using namespace Parser;
 
-std::string Action::str( void )
-{
-  char thechar[ 10 ] = { 0 };
-  if ( char_present ) {
-    if ( iswprint( ch ) )
-      snprintf( thechar, 10, "(%lc)", static_cast<wint_t>(ch) );
-    else
-      snprintf( thechar, 10, "(0x%x)", static_cast<unsigned int>(ch) );
-  }
-
-  return name() + std::string( thechar );
-}
-
 void Print::act_on_terminal( Terminal::Emulator *emu ) const
 {
   emu->print( this );
@@ -110,10 +97,4 @@ void UserByte::act_on_terminal( Terminal::Emulator *emu ) const
 void Resize::act_on_terminal( Terminal::Emulator *emu ) const
 {
   emu->resize( width, height );
-}
-
-bool Action::operator==( const Action &other ) const
-{
-  return ( char_present == other.char_present )
-    && ( ch == other.ch );
 }

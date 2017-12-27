@@ -68,13 +68,13 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
   if ( f.get_bell_count() != frame.last_frame.get_bell_count() ) {
     frame.append( '\007' );
   }
+  typedef Terminal::Framebuffer::title_type title_type;
 
   /* has icon name or window title changed? */
   if ( has_title && f.is_title_initialized() &&
        ( (!initialized)
          || (f.get_icon_name() != frame.last_frame.get_icon_name())
          || (f.get_window_title() != frame.last_frame.get_window_title()) ) ) {
-    typedef Terminal::Framebuffer::title_type title_type;
       /* set icon name and window title */
     if ( f.get_icon_name() == f.get_window_title() ) {
       /* write combined Icon Name and Window Title */
@@ -108,6 +108,18 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
       frame.append( '\007' );
     }
 
+  }
+
+  /* has clipboard changed? */
+  if (f.get_clipboard() != frame.last_frame.get_clipboard()) {
+    frame.append( "\033]52;c;" );
+    const title_type &clipboard( f.get_clipboard() );
+    for ( title_type::const_iterator i = clipboard.begin();
+          i != clipboard.end();
+          i++ ) {
+      frame.append( *i );
+    }
+    frame.append( '\007' );
   }
 
   /* has reverse video state changed? */
@@ -169,29 +181,30 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
     for ( int row = 0; row < f.ds.get_height(); row++ ) {
       const Row *new_row = f.get_row( 0 );
       const Row *old_row = &*rows.at( row );
-      if ( new_row == old_row || *new_row == *old_row ) {
-	/* if row 0, we're looking at ourselves and probably didn't scroll */
-	if ( row == 0 ) {
-	  break;
-	}
-	/* found a scroll */
-	lines_scrolled = row;
-	scroll_height = 1;
-
-	/* how big is the region that was scrolled? */
-	for ( int region_height = 1;
-	      lines_scrolled + region_height < f.ds.get_height();
-	      region_height++ ) {
-	  if ( *f.get_row( region_height )
-	       == *rows.at( lines_scrolled + region_height ) ) {
-	    scroll_height = region_height + 1;
-	  } else {
-	    break;
-	  }
-	}
-
+      if ( ! ( new_row == old_row || *new_row == *old_row ) ) {
+	continue;
+      }
+      /* if row 0, we're looking at ourselves and probably didn't scroll */
+      if ( row == 0 ) {
 	break;
       }
+      /* found a scroll */
+      lines_scrolled = row;
+      scroll_height = 1;
+
+      /* how big is the region that was scrolled? */
+      for ( int region_height = 1;
+	    lines_scrolled + region_height < f.ds.get_height();
+	    region_height++ ) {
+	if ( *f.get_row( region_height )
+	     == *rows.at( lines_scrolled + region_height ) ) {
+	  scroll_height = region_height + 1;
+	} else {
+	  break;
+	}
+      }
+
+      break;
     }
 
     if ( scroll_height ) {
@@ -214,7 +227,8 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
 	/* Common case:  if we're already on the bottom line and we're scrolling the whole
 	 * screen, just do a CR and LFs.
 	 */
-	if ( (scroll_height + lines_scrolled == f.ds.get_height() ) && frame.cursor_y + 1 == f.ds.get_height() ) {
+	if ( scroll_height + lines_scrolled == f.ds.get_height()
+	     && frame.cursor_y + 1 == f.ds.get_height() ) {
 	  frame.append( '\r' );
 	  frame.append( lines_scrolled, '\n' );
 	  frame.cursor_x = 0;
@@ -348,12 +362,14 @@ bool Display::put_row( bool initialized, FrameState &frame, const Framebuffer &f
     return false;
   }
 
+  const bool wrap_this = row.get_wrap();
+  const int row_width = f.ds.get_width();
   int clear_count = 0;
   bool wrote_last_cell = false;
   Renditions blank_renditions = initial_rendition();
 
   /* iterate for every cell */
-  while ( frame_x < f.ds.get_width() ) {
+  while ( frame_x < row_width ) {
 
     const Cell &cell = cells.at( frame_x );
 
@@ -384,7 +400,7 @@ bool Display::put_row( bool initialized, FrameState &frame, const Framebuffer &f
       frame.append_silent_move( frame_y, frame_x - clear_count );
       frame.update_rendition( blank_renditions );
       bool can_use_erase = has_bce || ( frame.current_rendition == initial_rendition() );
-      if ( can_use_erase && has_ech ) {
+      if ( can_use_erase && has_ech && clear_count > 4 ) {
 	snprintf( tmp, 64, "\033[%dX", clear_count );
 	frame.append( tmp );
       } else {
@@ -405,12 +421,23 @@ bool Display::put_row( bool initialized, FrameState &frame, const Framebuffer &f
 
     /* Now draw a character cell. */
     /* Move to the right position. */
+    const int cell_width = cell.get_width();
+    /* If we are about to print the last character in a wrapping row,
+       trash the cursor position to force explicit positioning.  We do
+       this because our input terminal state may have the cursor on
+       the autowrap column ("column 81"), but our output terminal
+       states always snap the cursor to the true last column ("column
+       80"), and we want to be able to apply the diff to either, for
+       verification. */
+    if ( wrap_this && frame_x + cell_width >= row_width ) {
+      frame.cursor_x = frame.cursor_y = -1;
+    }
     frame.append_silent_move( frame_y, frame_x );
     frame.update_rendition( cell.get_renditions() );
     frame.append_cell( cell );
-    frame_x += cell.get_width();
-    frame.cursor_x += cell.get_width();
-    if ( frame_x >= f.ds.get_width() ) {
+    frame_x += cell_width;
+    frame.cursor_x += cell_width;
+    if ( frame_x >= row_width ) {
       wrote_last_cell = true;
     }
   }
@@ -423,8 +450,8 @@ bool Display::put_row( bool initialized, FrameState &frame, const Framebuffer &f
     frame.append_silent_move( frame_y, frame_x - clear_count );
     frame.update_rendition( blank_renditions );
 
-    bool can_use_erase = !row.get_wrap() && ( has_bce || ( frame.current_rendition == initial_rendition() ) );
-    if ( can_use_erase ) {
+    bool can_use_erase = has_bce || ( frame.current_rendition == initial_rendition() );
+    if ( can_use_erase && !wrap_this ) {
       frame.append( "\033[K" );
     } else {
       frame.append( clear_count, ' ' );
@@ -433,23 +460,23 @@ bool Display::put_row( bool initialized, FrameState &frame, const Framebuffer &f
     }
   }
 
-  if ( wrote_last_cell
-       && (frame_y < f.ds.get_height() - 1) ) {
-    /* To hint that a word-select should group the end of one line
-       with the beginning of the next, we let the real cursor
-       actually wrap around in cases where it wrapped around for us. */
-    if ( row.get_wrap() ) {
-      /* Update our cursor, and ask for wrap on the next row. */
-      frame.cursor_x = 0;
-      frame.cursor_y++;
-      return true;
-    } else {
-      /* Resort to CR/LF and update our cursor. */
-      frame.append( "\r\n" );
-      frame.cursor_x = 0;
-      frame.cursor_y++;
-    }
+  if ( ! ( wrote_last_cell
+	   && (frame_y < f.ds.get_height() - 1) ) ) {
+    return false;
   }
+  /* To hint that a word-select should group the end of one line
+     with the beginning of the next, we let the real cursor
+     actually wrap around in cases where it wrapped around for us. */
+  if ( wrap_this ) {
+    /* Update our cursor, and ask for wrap on the next row. */
+    frame.cursor_x = 0;
+    frame.cursor_y++;
+    return true;
+  }
+  /* Resort to CR/LF and update our cursor. */
+  frame.append( "\r\n" );
+  frame.cursor_x = 0;
+  frame.cursor_y++;
   return false;
 }
 
@@ -475,29 +502,30 @@ void FrameState::append_silent_move( int y, int x )
 
 void FrameState::append_move( int y, int x )
 {
+  const int last_x = cursor_x;
+  const int last_y = cursor_y;
+  cursor_x = x;
+  cursor_y = y;
   // Only optimize if cursor pos is known
-  if ( cursor_x != -1 && cursor_y != -1 ) {
+  if ( last_x != -1 && last_y != -1 ) {
     // Can we use CR and/or LF?  They're cheap and easier to trace.
-    if ( x == 0 && y - cursor_y >= 0 && y - cursor_y < 5 ) {
-      if ( cursor_x != 0 ) {
+    if ( x == 0 && y - last_y >= 0 && y - last_y < 5 ) {
+      if ( last_x != 0 ) {
 	append( '\r' );
       }
-      append( y - cursor_y, '\n' );
-      goto positioned;
+      append( y - last_y, '\n' );
+      return;
     }
     // Backspaces are good too.
-    if ( y == cursor_y && x - cursor_x < 0 && x - cursor_x > -5 ) {
-      append( cursor_x - x, '\b' );
-      goto positioned;
+    if ( y == last_y && x - last_x < 0 && x - last_x > -5 ) {
+      append( last_x - x, '\b' );
+      return;
     }
     // More optimizations are possible.
   }
   char tmp[ 64 ];
   snprintf( tmp, 64, "\033[%d;%dH", y + 1, x + 1 );
   append( tmp );
- positioned:
-  cursor_x = x;
-  cursor_y = y;
 }
 
 void FrameState::update_rendition(const Renditions &r, bool force) {

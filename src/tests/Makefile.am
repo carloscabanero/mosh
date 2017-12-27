@@ -19,9 +19,12 @@ displaytests = \
 	emulation-attributes-16color.test \
 	emulation-attributes-256color8.test \
 	emulation-attributes-256color248.test \
+	emulation-attributes-truecolor.test \
+	emulation-attributes-bce.test \
 	emulation-back-tab.test \
 	emulation-cursor-motion.test \
 	emulation-multiline-scroll.test \
+	emulation-scroll.test \
 	emulation-wrap-across-frames.test \
 	network-no-diff.test \
 	prediction-unicode.test \
@@ -35,7 +38,7 @@ displaytests = \
 	unicode-later-combining.test \
 	window-resize.test
 
-check_PROGRAMS = ocb-aes encrypt-decrypt base64 nonce-incr inpty
+check_PROGRAMS = ocb-aes encrypt-decrypt base64 nonce-incr inpty is-utf8-locale
 TESTS = ocb-aes encrypt-decrypt base64 nonce-incr local.test $(displaytests)
 XFAIL_TESTS = \
 	e2e-failure.test \
@@ -63,7 +66,11 @@ nonce_incr_LDADD = ../network/libmoshnetwork.a ../crypto/libmoshcrypto.a ../util
 
 inpty_SOURCES = inpty.cc
 inpty_CPPFLAGS = -I$(srcdir)/../util
-inpty_LDADD = ../util/libmoshutil.a $(LIBUTIL)
+inpty_LDADD = ../util/libmoshutil.a
+
+is_utf8_locale_SOURCES = is-utf8-locale.cc
+is_utf8_locale_CPPFLAGS = -I$(srcdir)/../util
+is_utf8_locale_LDADD = ../util/libmoshutil.a $(LIBUTIL)
 
 clean-local: clean-local-check
 .PHONY: clean-local-check

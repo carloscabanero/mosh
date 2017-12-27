@@ -2,8 +2,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.61])
-AC_INIT([mosh], [1.2.6], [mosh-devel@mit.edu])
-AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AC_INIT([mosh], [1.3.2], [mosh-devel@mit.edu])
+AM_INIT_AUTOMAKE([foreign std-options -Wall -Werror])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_SRCDIR([src/frontend/mosh-client.cc])
 AC_CONFIG_MACRO_DIR([m4])
@@ -177,9 +177,20 @@ AS_IF([test x"$with_utempter" != xno],
       [AC_MSG_WARN([Unable to find libutempter; utmp entries will not be made.])],
       [AC_MSG_ERROR([--with-utempter was given but libutempter was not found.])])])])
 
+AC_ARG_ENABLE([syslog],
+  [AS_HELP_STRING([--enable-syslog], [Enable connection logging in mosh-server @<:@no@:>@])],
+  [enable_syslog="$enableval"],
+  [enable_syslog="no"])
+AS_IF([test x"$enable_syslog" != xno],
+  [AC_CHECK_HEADERS([syslog.h],
+    [AC_DEFINE([HAVE_SYSLOG], [1], [Define if syslog is available.])],
+    [AS_IF([test x"$enable_syslog" = xcheck],
+      [AC_MSG_WARN([Unable to find syslog.h.])],
+      [AC_MSG_ERROR([--enable-syslog was given but syslog.h was not found.])])])])
+
 AC_SEARCH_LIBS([compress], [z], , [AC_MSG_ERROR([Unable to find zlib.])])
 
-AC_SEARCH_LIBS([socket], [socket])
+AC_SEARCH_LIBS([socket], [socket network])
 AC_SEARCH_LIBS([inet_addr], [nsl])
 
 AC_SEARCH_LIBS([clock_gettime], [rt])
@@ -323,10 +334,13 @@ dnl Checks for chosen crypto library
 case "${with_crypto_library}" in
   openssl)
     PKG_CHECK_MODULES([CRYPTO], [openssl],
-      [],
-      [AC_MSG_ERROR([OpenSSL crypto library not found])])
-    AC_DEFINE([USE_OPENSSL_AES], [1], [Use OpenSSL library])
-    ;;
+      [AC_DEFINE([USE_OPENSSL_AES], [1], [Use OpenSSL library])],
+      [AX_CHECK_LIBRARY([CRYPTO], [openssl/aes.h], [crypto],
+        [AC_DEFINE([USE_OPENSSL_AES], [1], [Use OpenSSL library])
+          AC_SUBST([CRYPTO_CFLAGS], ["$CRYPTO_CPPFLAGS"])
+          AC_SUBST([CRYPTO_LIBS], ["$CRYPTO_LDFLAGS -lcrypto"])],
+        [AC_MSG_ERROR([OpenSSL crypto library not found])])])
+        ;;
   nettle)
     PKG_CHECK_MODULES([CRYPTO], [nettle],
       [],
@@ -349,10 +363,8 @@ AC_CHECK_DECL([forkpty],
   , [[#include <sys/types.h>
   #include <libutil.h>]])
 
-AC_CHECK_LIB([util], [forkpty], [
+AC_SEARCH_LIBS([forkpty], [util bsd], [
   AC_DEFINE([HAVE_FORKPTY],, [Define if you have forkpty().])
-  LIBUTIL="-lutil"
-  AC_SUBST([LIBUTIL])
 ])
 
 AC_MSG_CHECKING([whether pipe2(..., O_CLOEXEC) is supported])

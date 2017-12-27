@@ -106,13 +106,12 @@ void Emulator::print( const Parser::Print *act )
 
     fb.reset_cell( this_cell );
     this_cell->append( ch );
-    this_cell->set_width( chwidth );
+    this_cell->set_wide( chwidth == 2 ); /* chwidth had better be 1 or 2 here */
     fb.apply_renditions_to_cell( this_cell );
 
-    if ( chwidth == 2 ) { /* erase overlapped cell */
-      if ( fb.ds.get_cursor_col() + 1 < fb.ds.get_width() ) {
-	fb.reset_cell( fb.get_mutable_cell( fb.ds.get_cursor_row(), fb.ds.get_cursor_col() + 1 ) );
-      }
+    if ( chwidth == 2
+      && fb.ds.get_cursor_col() + 1 < fb.ds.get_width() ) { /* erase overlapped cell */
+      fb.reset_cell( fb.get_mutable_cell( fb.ds.get_cursor_row(), fb.ds.get_cursor_col() + 1 ) );
     }
 
     fb.ds.move_col( chwidth, true, true );
@@ -131,7 +130,7 @@ void Emulator::print( const Parser::Print *act )
 	   base character [e.g. start of line], if the
 	   combining character has been cleared with
 	   a sequence like ED ("J") or EL ("K") */
-	assert( combining_cell->get_width() == 1 );
+	assert( !combining_cell->get_wide() );
 	combining_cell->set_fallback( true );
 	fb.ds.move_col( 1, true, true );
       }
@@ -143,7 +142,7 @@ void Emulator::print( const Parser::Print *act )
   case -1: /* unprintable character */
     break;
   default:
-    assert( false );
+    assert( !"unexpected character width from wcwidth()" );
     break;
   }
 }
@@ -180,5 +179,5 @@ void Emulator::resize( size_t s_width, size_t s_height )
 bool Emulator::operator==( Emulator const &x ) const
 {
   /* dispatcher and user are irrelevant for us */
-  return ( fb == x.fb );
+  return fb == x.fb;
 }

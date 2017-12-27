@@ -30,55 +30,16 @@
     also delete it here.
 */
 
-#include <assert.h>
-#include "terminaluserinput.h"
+#include <stdio.h>
 
-using namespace Terminal;
-using namespace std;
+#include "locale_utils.h"
 
-string UserInput::input( const Parser::UserByte *act,
-			 bool application_mode_cursor_keys )
+int main( int argc __attribute__(( unused )), char **argv __attribute__(( unused )))
 {
-  /* The user will always be in application mode. If stm is not in
-     application mode, convert user's cursor control function to an
-     ANSI cursor control sequence */
-
-  /* We need to look ahead one byte in the SS3 state to see if
-     the next byte will be A, B, C, or D (cursor control keys). */
-
-  /* This doesn't handle the 8-bit SS3 C1 control, which would be
-     two octets in UTF-8. Fortunately nobody seems to send this. */
-
-  switch ( state ) {
-  case Ground:
-    if ( act->c == 0x1b ) { /* ESC */
-      state = ESC;
-    }
-    return string( &act->c, 1 );
-
-  case ESC:
-    if ( act->c == 'O' ) { /* ESC O = 7-bit SS3 */
-      state = SS3;
-      return string();
-    }
-    state = Ground;
-    return string( &act->c, 1 );
-
-  case SS3:
-    state = Ground;
-    if ( (!application_mode_cursor_keys)
-	 && (act->c >= 'A')
-	 && (act->c <= 'D') ) {
-      char translated_cursor[ 2 ] = { '[', act->c };
-      return string( translated_cursor, 2 );
-    } else {
-      char original_cursor[ 2 ] = { 'O', act->c };
-      return string( original_cursor, 2 );
-    }
-
-  default:
-    assert( !"unexpected state" );
-    state = Ground;
-    return string();
+  set_native_locale();
+  if ( !is_utf8_locale() ) {
+    fprintf( stderr, "not a UTF-8 locale\n" );
+    return 1;
   }
+  return 0;
 }

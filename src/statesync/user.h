@@ -60,14 +60,10 @@ namespace Network {
     UserEvent( const Parser::UserByte & s_userbyte ) : type( UserByteType ), userbyte( s_userbyte ), resize( -1, -1 ) {}
     UserEvent( const Parser::Resize & s_resize ) : type( ResizeType ), userbyte( 0 ), resize( s_resize ) {}
 
-    UserEvent() /* default constructor required by C++11 STL */
-      : type( UserByteType ),
-	userbyte( 0 ),
-	resize( -1, -1 )
-    {
-      assert( false );
-    }
+  private:
+    UserEvent();
 
+  public:
     bool operator==( const UserEvent &x ) const { return ( type == x.type ) && ( userbyte == x.userbyte ) && ( resize == x.resize ); }
   };
 
@@ -84,12 +80,12 @@ namespace Network {
     
     bool empty( void ) const { return actions.empty(); }
     size_t size( void ) const { return actions.size(); }
-    const Parser::Action *get_action( unsigned int i ) const;
+    const Parser::Action &get_action( unsigned int i ) const;
     
     /* interface for Network::Transport */
     void subtract( const UserStream *prefix );
     string diff_from( const UserStream &existing ) const;
-    string init_diff( void ) const { assert( false ); return string(); };
+    string init_diff( void ) const { return diff_from( UserStream() ); };
     void apply_string( const string &diff );
     bool operator==( const UserStream &x ) const { return actions == x.actions; }
 

@@ -41,6 +41,7 @@
 #include <netinet/in.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "dos_assert.h"
@@ -172,11 +173,9 @@ Connection::Socket::Socket( int family )
   /* request explicit congestion notification on received datagrams */
 #ifdef HAVE_IP_RECVTOS
   int tosflag = true;
-  if ( setsockopt( _fd, IPPROTO_IP, IP_RECVTOS, &tosflag, sizeof tosflag ) < 0 ) {
-    /* FreeBSD disallows this option on IPv6 sockets. */
-    if ( family == IPPROTO_IP ) {
-      perror( "setsockopt( IP_RECVTOS )" );
-    }
+  if ( setsockopt( _fd, IPPROTO_IP, IP_RECVTOS, &tosflag, sizeof tosflag ) < 0
+       && family == IPPROTO_IP ) { /* FreeBSD disallows this option on IPv6 sockets. */
+    perror( "setsockopt( IP_RECVTOS )" );
   }
 #endif
 }
@@ -249,8 +248,7 @@ Connection::Connection( const char *desired_ip, const char *desired_port ) /* se
     RTT_hit( false ),
     SRTT( 1000 ),
     RTTVAR( 500 ),
-    have_send_exception( false ),
-    send_exception()
+    send_error()
 {
   setup();
 
@@ -288,7 +286,6 @@ Connection::Connection( const char *desired_ip, const char *desired_port ) /* se
     throw; /* this time it's fatal */
   }
 
-  assert( false );
   throw NetworkException( "Could not bind", errno );
 }
 
@@ -327,27 +324,31 @@ bool Connection::try_bind( const char *addr, int port_low, int port_high )
       throw NetworkException( "Unknown address family", 0 );
     }
 
+    if ( local_addr.sa.sa_family == AF_INET6
+      && memcmp(&local_addr.sin6.sin6_addr, &in6addr_any, sizeof(in6addr_any)) == 0 ) {
+      const int off = 0;
+      if ( setsockopt( sock(), IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off) ) ) {
+        perror( "setsockopt( IPV6_V6ONLY, off )" );
+      }
+    }
+
     if ( bind( sock(), &local_addr.sa, local_addr_len ) == 0 ) {
       set_MTU( local_addr.sa.sa_family );
       return true;
-    } else if ( i == search_high ) { /* last port to search */
-      int saved_errno = errno;
-      socks.pop_back();
-      char host[ NI_MAXHOST ], serv[ NI_MAXSERV ];
-      int errcode = getnameinfo( &local_addr.sa, local_addr_len,
-				 host, sizeof( host ), serv, sizeof( serv ),
-				 NI_DGRAM | NI_NUMERICHOST | NI_NUMERICSERV );
-      if ( errcode != 0 ) {
-	throw NetworkException( std::string( "bind: getnameinfo: " ) + gai_strerror( errcode ), 0 );
-      }
-      fprintf( stderr, "Failed binding to %s:%s\n",
-	       host, serv );
-      throw NetworkException( "bind", saved_errno );
-    }
+    } // else fallthrough to below code, on last iteration.
   }
-
-  assert( false );
-  return false;
+  int saved_errno = errno;
+  socks.pop_back();
+  char host[ NI_MAXHOST ], serv[ NI_MAXSERV ];
+  int errcode = getnameinfo( &local_addr.sa, local_addr_len,
+			     host, sizeof( host ), serv, sizeof( serv ),
+			     NI_DGRAM | NI_NUMERICHOST | NI_NUMERICSERV );
+  if ( errcode != 0 ) {
+    throw NetworkException( std::string( "bind: getnameinfo: " ) + gai_strerror( errcode ), 0 );
+  }
+  fprintf( stderr, "Failed binding to %s:%s\n",
+	   host, serv );
+  throw NetworkException( "bind", saved_errno );
 }
 
 Connection::Connection( const char *key_str, const char *ip, const char *port ) /* client */
@@ -369,8 +370,7 @@ Connection::Connection( const char *key_str, const char *ip, const char *port ) 
     RTT_hit( false ),
     SRTT( 1000 ),
     RTTVAR( 500 ),
-    have_send_exception( false ),
-    send_exception()
+    send_error()
 {
   setup();
 
@@ -405,14 +405,10 @@ void Connection::send( const string & s )
   ssize_t bytes_sent = sendto( sock(), p.data(), p.size(), MSG_DONTWAIT,
 			       &remote_addr.sa, remote_addr_len );
 
-  if ( bytes_sent == static_cast<ssize_t>( p.size() ) ) {
-    have_send_exception = false;
-  } else {
-    /* Notify the frontend on sendto() failure, but don't alter control flow.
-       sendto() success is not very meaningful because packets can be lost in
-       flight anyway. */
-    have_send_exception = true;
-    send_exception = NetworkException( "sendto", errno );
+  if ( bytes_sent != static_cast<ssize_t>( p.size() ) ) {
+    /* Make sendto() failure available to the frontend. */
+    send_error = "sendto: ";
+    send_error += strerror( errno );
 
     if ( errno == EMSGSIZE ) {
       MTU = DEFAULT_SEND_MTU; /* payload MTU of last resort */
@@ -439,14 +435,12 @@ string Connection::recv( void )
   for ( std::deque< Socket >::const_iterator it = socks.begin();
 	it != socks.end();
 	it++ ) {
-    bool islast = (it + 1) == socks.end();
     string payload;
     try {
-      payload = recv_one( it->fd(), !islast );
+      payload = recv_one( it->fd());
     } catch ( NetworkException & e ) {
       if ( (e.the_errno == EAGAIN)
 	   || (e.the_errno == EWOULDBLOCK) ) {
-	assert( !islast );
 	continue;
       } else {
 	throw;
@@ -457,11 +451,10 @@ string Connection::recv( void )
     prune_sockets();
     return payload;
   }
-  assert( false );
-  return "";
+  throw NetworkException( "No packet received" );
 }
 
-string Connection::recv_one( int sock_to_recv, bool nonblocking )
+string Connection::recv_one( int sock_to_recv )
 {
   /* receive source address, ECN, and payload in msghdr structure */
   Addr packet_remote_addr;
@@ -488,7 +481,7 @@ string Connection::recv_one( int sock_to_recv, bool nonblocking )
   /* receive flags */
   header.msg_flags = 0;
 
-  ssize_t received_len = recvmsg( sock_to_recv, &header, nonblocking ? MSG_DONTWAIT : 0 );
+  ssize_t received_len = recvmsg( sock_to_recv, &header, MSG_DONTWAIT );
 
   if ( received_len < 0 ) {
     throw NetworkException( "recvmsg", errno );
@@ -503,85 +496,82 @@ string Connection::recv_one( int sock_to_recv, bool nonblocking )
 
   struct cmsghdr *ecn_hdr = CMSG_FIRSTHDR( &header );
   if ( ecn_hdr
-       && (ecn_hdr->cmsg_level == IPPROTO_IP)
-       && ((ecn_hdr->cmsg_type == IP_TOS)
+       && ecn_hdr->cmsg_level == IPPROTO_IP
+       && ( ecn_hdr->cmsg_type == IP_TOS
 #ifdef IP_RECVTOS
-	   || (ecn_hdr->cmsg_type == IP_RECVTOS)
+	    || ecn_hdr->cmsg_type == IP_RECVTOS
 #endif
-	   )) {
+	    ) ) {
     /* got one */
     uint8_t *ecn_octet_p = (uint8_t *)CMSG_DATA( ecn_hdr );
     assert( ecn_octet_p );
 
-    if ( (*ecn_octet_p & 0x03) == 0x03 ) {
-      congestion_experienced = true;
-    }
+    congestion_experienced = (*ecn_octet_p & 0x03) == 0x03;
   }
 
   Packet p( session.decrypt( msg_payload, received_len ) );
 
   dos_assert( p.direction == (server ? TO_SERVER : TO_CLIENT) ); /* prevent malicious playback to sender */
 
-  if ( p.seq >= expected_receiver_seq ) { /* don't use out-of-order packets for timestamp or targeting */
-    expected_receiver_seq = p.seq + 1; /* this is security-sensitive because a replay attack could otherwise
-					  screw up the timestamp and targeting */
+  if ( p.seq < expected_receiver_seq ) { /* don't use (but do return) out-of-order packets for timestamp or targeting */
+    return p.payload;
+  }
+  expected_receiver_seq = p.seq + 1; /* this is security-sensitive because a replay attack could otherwise
+					screw up the timestamp and targeting */
 
-    if ( p.timestamp != uint16_t(-1) ) {
-      saved_timestamp = p.timestamp;
-      saved_timestamp_received_at = timestamp();
+  if ( p.timestamp != uint16_t(-1) ) {
+    saved_timestamp = p.timestamp;
+    saved_timestamp_received_at = timestamp();
 
-      if ( congestion_experienced ) {
-	/* signal counterparty to slow down */
-	/* this will gradually slow the counterparty down to the minimum frame rate */
-	saved_timestamp -= CONGESTION_TIMESTAMP_PENALTY;
-	if ( server ) {
-	  fprintf( stderr, "Received explicit congestion notification.\n" );
-	}
-      }
-    }
-
-    if ( p.timestamp_reply != uint16_t(-1) ) {
-      uint16_t now = timestamp16();
-      double R = timestamp_diff( now, p.timestamp_reply );
-
-      if ( R < 5000 ) { /* ignore large values, e.g. server was Ctrl-Zed */
-	if ( !RTT_hit ) { /* first measurement */
-	  SRTT = R;
-	  RTTVAR = R / 2;
-	  RTT_hit = true;
-	} else {
-	  const double alpha = 1.0 / 8.0;
-	  const double beta = 1.0 / 4.0;
-	  
-	  RTTVAR = (1 - beta) * RTTVAR + ( beta * fabs( SRTT - R ) );
-	  SRTT = (1 - alpha) * SRTT + ( alpha * R );
-	}
-      }
-    }
-
-    /* auto-adjust to remote host */
-    has_remote_addr = true;
-    last_heard = timestamp();
-
-    if ( server ) { /* only client can roam */
-      if ( remote_addr_len != header.msg_namelen ||
-	   memcmp( &remote_addr, &packet_remote_addr, remote_addr_len ) != 0 ) {
-	remote_addr = packet_remote_addr;
-	remote_addr_len = header.msg_namelen;
-	char host[ NI_MAXHOST ], serv[ NI_MAXSERV ];
-	int errcode = getnameinfo( &remote_addr.sa, remote_addr_len,
-				   host, sizeof( host ), serv, sizeof( serv ),
-				   NI_DGRAM | NI_NUMERICHOST | NI_NUMERICSERV );
-	if ( errcode != 0 ) {
-	  throw NetworkException( std::string( "recv_one: getnameinfo: " ) + gai_strerror( errcode ), 0 );
-	}
-	fprintf( stderr, "Server now attached to client at %s:%s\n",
-		 host, serv );
+    if ( congestion_experienced ) {
+      /* signal counterparty to slow down */
+      /* this will gradually slow the counterparty down to the minimum frame rate */
+      saved_timestamp -= CONGESTION_TIMESTAMP_PENALTY;
+      if ( server ) {
+	fprintf( stderr, "Received explicit congestion notification.\n" );
       }
     }
   }
 
-  return p.payload; /* we do return out-of-order or duplicated packets to caller */
+  if ( p.timestamp_reply != uint16_t(-1) ) {
+    uint16_t now = timestamp16();
+    double R = timestamp_diff( now, p.timestamp_reply );
+
+    if ( R < 5000 ) { /* ignore large values, e.g. server was Ctrl-Zed */
+      if ( !RTT_hit ) { /* first measurement */
+	SRTT = R;
+	RTTVAR = R / 2;
+	RTT_hit = true;
+      } else {
+	const double alpha = 1.0 / 8.0;
+	const double beta = 1.0 / 4.0;
+	  
+	RTTVAR = (1 - beta) * RTTVAR + ( beta * fabs( SRTT - R ) );
+	SRTT = (1 - alpha) * SRTT + ( alpha * R );
+      }
+    }
+  }
+
+  /* auto-adjust to remote host */
+  has_remote_addr = true;
+  last_heard = timestamp();
+
+  if ( server && /* only client can roam */
+       ( remote_addr_len != header.msg_namelen ||
+	 memcmp( &remote_addr, &packet_remote_addr, remote_addr_len ) != 0 ) ) {
+    remote_addr = packet_remote_addr;
+    remote_addr_len = header.msg_namelen;
+    char host[ NI_MAXHOST ], serv[ NI_MAXSERV ];
+    int errcode = getnameinfo( &remote_addr.sa, remote_addr_len,
+			       host, sizeof( host ), serv, sizeof( serv ),
+			       NI_DGRAM | NI_NUMERICHOST | NI_NUMERICSERV );
+    if ( errcode != 0 ) {
+      throw NetworkException( std::string( "recv_one: getnameinfo: " ) + gai_strerror( errcode ), 0 );
+    }
+    fprintf( stderr, "Server now attached to client at %s:%s\n",
+	     host, serv );
+  }
+  return p.payload;
 }
 
 std::string Connection::port( void ) const

@@ -51,7 +51,6 @@ namespace Network {
   private:
     /* the underlying, encrypted network connection */
     Connection connection;
-
     /* sender side */
     TransportSender<MyState> sender;
 
@@ -71,6 +70,14 @@ namespace Network {
     Transport( MyState &initial_state, RemoteState &initial_remote,
 	       const char *key_str, const char *ip, const char *port );
 
+    Transport( MyState &initial_state,
+        RemoteState &initial_remote,
+	       const char *key_str,
+         const char *ip,
+         const char *port,
+         list< TimestampedState<MyState> > restored_sent_states,
+         list< TimestampedState<RemoteState> > restored_received_states);
+
     /* Send data or an ack if necessary. */
     void tick( void ) { sender.tick(); }
 
@@ -79,6 +86,10 @@ namespace Network {
 
     /* Blocks waiting for a packet. */
     void recv( void );
+
+    // Hack for now
+    list< TimestampedState<RemoteState> > get_received_states (void) { return received_states; }
+    list< TimestampedState<MyState> > get_sent_states(void) { return  sender.get_sent_states(); };
 
     /* Find diff between last receiver state and current remote state, then rationalize states. */
     string get_remote_diff( void );
@@ -119,7 +130,7 @@ namespace Network {
     const Addr &get_remote_addr( void ) const { return connection.get_remote_addr(); }
     socklen_t get_remote_addr_len( void ) const { return connection.get_remote_addr_len(); }
 
-    const NetworkException *get_send_exception( void ) const { return connection.get_send_exception(); }
+    std::string &get_send_error( void ) { return connection.get_send_error(); }
   };
 }
 
